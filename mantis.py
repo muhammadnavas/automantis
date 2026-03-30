@@ -288,7 +288,6 @@ def build_message(selected_questions: list[dict], streak_lines: list[str]) -> st
         "",
         *streak_lines,
         "",
-        "",
     ]
     lines.append("Good luck!")
     return "\n".join(lines)
