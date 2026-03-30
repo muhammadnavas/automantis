@@ -1,5 +1,6 @@
 import os
 import random
+import json
 from datetime import datetime
 
 import requests
@@ -11,6 +12,8 @@ load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 QUESTION_COUNT = int(os.getenv("QUESTION_COUNT", "3"))
+STREAK_STATE_FILE = os.getenv("STREAK_STATE_FILE", "streaks.json")
+MAX_TRACKED_POLLS = int(os.getenv("MAX_TRACKED_POLLS", "300"))
 
 QUESTION_BANK = {
     "Percentages": [
@@ -123,6 +126,149 @@ def validate_config() -> None:
         raise ValueError("TELEGRAM_CHAT_ID is missing in .env")
     if QUESTION_COUNT <= 0:
         raise ValueError("QUESTION_COUNT must be greater than 0")
+    if MAX_TRACKED_POLLS <= 0:
+        raise ValueError("MAX_TRACKED_POLLS must be greater than 0")
+
+
+def load_state() -> dict:
+    default_state = {
+        "last_update_id": 0,
+        "polls": {},
+        "users": {},
+    }
+    if not os.path.exists(STREAK_STATE_FILE):
+        return default_state
+
+    try:
+        with open(STREAK_STATE_FILE, "r", encoding="utf-8") as file:
+            data = json.load(file)
+    except (json.JSONDecodeError, OSError):
+        return default_state
+
+    if not isinstance(data, dict):
+        return default_state
+
+    data.setdefault("last_update_id", 0)
+    data.setdefault("polls", {})
+    data.setdefault("users", {})
+    return data
+
+
+def save_state(state: dict) -> None:
+    with open(STREAK_STATE_FILE, "w", encoding="utf-8") as file:
+        json.dump(state, file, indent=2)
+
+
+def get_poll_answer_updates(offset: int | None = None) -> list[dict]:
+    url = f"https://api.telegram.org/bot{TOKEN}/getUpdates"
+    params = [("allowed_updates", json.dumps(["poll_answer"]))]
+    if offset is not None:
+        params.append(("offset", str(offset)))
+
+    response = requests.get(url, params=params, timeout=20)
+    response.raise_for_status()
+    payload = response.json()
+    if not payload.get("ok"):
+        raise RuntimeError(f"Telegram getUpdates error: {payload}")
+    return payload.get("result", [])
+
+
+def upsert_user_streak(state: dict, user: dict, is_correct: bool) -> None:
+    user_id = str(user.get("id"))
+    if not user_id or user_id == "None":
+        return
+
+    display_name = (
+        user.get("username")
+        or user.get("first_name")
+        or user.get("last_name")
+        or user_id
+    )
+    users = state["users"]
+    entry = users.setdefault(
+        user_id,
+        {
+            "name": display_name,
+            "current_streak": 0,
+            "best_streak": 0,
+            "correct_answers": 0,
+            "wrong_answers": 0,
+            "updated_at": "",
+        },
+    )
+
+    entry["name"] = display_name
+    entry["updated_at"] = datetime.now().isoformat(timespec="seconds")
+
+    if is_correct:
+        entry["correct_answers"] += 1
+        entry["current_streak"] += 1
+        if entry["current_streak"] > entry["best_streak"]:
+            entry["best_streak"] = entry["current_streak"]
+    else:
+        entry["wrong_answers"] += 1
+        entry["current_streak"] = 0
+
+
+def process_pending_poll_answers(state: dict) -> int:
+    offset = state["last_update_id"] + 1 if state["last_update_id"] else None
+    updates = get_poll_answer_updates(offset)
+    processed = 0
+
+    for update in updates:
+        update_id = update.get("update_id", 0)
+        if update_id > state["last_update_id"]:
+            state["last_update_id"] = update_id
+
+        poll_answer = update.get("poll_answer")
+        if not poll_answer:
+            continue
+
+        poll_id = poll_answer.get("poll_id")
+        poll_info = state["polls"].get(poll_id)
+        if not poll_info:
+            continue
+
+        selected = poll_answer.get("option_ids", [])
+        selected_option = selected[0] if selected else None
+        is_correct = selected_option == poll_info.get("correct_option_id")
+        upsert_user_streak(state, poll_answer.get("user", {}), is_correct)
+        processed += 1
+
+    return processed
+
+
+def trim_poll_history(state: dict) -> None:
+    polls = state["polls"]
+    if len(polls) <= MAX_TRACKED_POLLS:
+        return
+
+    ordered_poll_ids = sorted(
+        polls,
+        key=lambda poll_id: polls[poll_id].get("created_at", ""),
+    )
+    remove_count = len(polls) - MAX_TRACKED_POLLS
+    for poll_id in ordered_poll_ids[:remove_count]:
+        polls.pop(poll_id, None)
+
+
+def build_streak_summary(state: dict) -> list[str]:
+    users = state.get("users", {})
+    if not users:
+        return ["🔥 Streaks: No attempts yet."]
+
+    leaderboard = sorted(
+        users.values(),
+        key=lambda item: (item.get("current_streak", 0), item.get("best_streak", 0)),
+        reverse=True,
+    )[:3]
+
+    lines = ["🔥 Streak Board"]
+    for rank, user in enumerate(leaderboard, start=1):
+        lines.append(
+            f"{rank}. {user['name']} - current: {user['current_streak']} | best: {user['best_streak']}"
+        )
+    return lines
 
 
 def build_question_pool() -> list[dict]:
@@ -141,12 +287,14 @@ def generate_daily_questions() -> list[dict]:
     return random.sample(pool, count)
 
 
-def build_message(selected_questions: list[dict]) -> str:
+def build_message(selected_questions: list[dict], streak_lines: list[str]) -> str:
     today = datetime.now().strftime("%d %b %Y")
     lines = [
         "📘 Daily Aptitude Quiz",
         f"📅 {today}",
         f"🧠 Questions: {len(selected_questions)}",
+        "",
+        *streak_lines,
         "",
         "Tap an option for each quiz below.",
         "Telegram will instantly tell you if you are correct or wrong.",
@@ -194,19 +342,35 @@ def send_quiz_poll(item: dict, index: int) -> dict:
 
 def main() -> None:
     validate_config()
+    state = load_state()
+    processed_answers = process_pending_poll_answers(state)
+
     questions = generate_daily_questions()
-    header = build_message(questions)
+    streak_lines = build_streak_summary(state)
+    header = build_message(questions, streak_lines)
     header_payload = send_telegram_message(header)
     header_message_id = header_payload.get("result", {}).get("message_id")
 
     sent_count = 0
     for index, item in enumerate(questions, start=1):
-        send_quiz_poll(item, index)
+        poll_payload = send_quiz_poll(item, index)
+        poll_id = poll_payload.get("result", {}).get("poll", {}).get("id")
+        if poll_id:
+            state["polls"][poll_id] = {
+                "correct_option_id": item["correct_option"],
+                "topic": item["topic"],
+                "question": item["question"],
+                "created_at": datetime.now().isoformat(timespec="seconds"),
+            }
         sent_count += 1
+
+    trim_poll_history(state)
+    save_state(state)
 
     print(
         "Daily quiz sent successfully. "
-        f"header_message_id={header_message_id}, polls_sent={sent_count}"
+        f"header_message_id={header_message_id}, polls_sent={sent_count}, "
+        f"processed_poll_answers={processed_answers}"
     )
 
 
