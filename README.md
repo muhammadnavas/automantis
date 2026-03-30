@@ -1,4 +1,4 @@
-"# AutoMantis
+# AutoMantis
 
 A Telegram bot that sends aptitude questions to users, tracks their performance, and maintains answer streaks. The bot extracts and curates multiple-choice questions from PDF documents and delivers them via interactive Telegram polls.
 
