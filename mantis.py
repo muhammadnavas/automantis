@@ -254,21 +254,14 @@ def trim_poll_history(state: dict) -> None:
 
 def build_streak_summary(state: dict) -> list[str]:
     users = state.get("users", {})
-    if not users:
-        return ["🔥 Streaks: No attempts yet."]
+    current_user = users.get(str(CHAT_ID))
+    if not current_user:
+        return ["🔥 Your current streak: 0"]
 
-    leaderboard = sorted(
-        users.values(),
-        key=lambda item: (item.get("current_streak", 0), item.get("best_streak", 0)),
-        reverse=True,
-    )[:3]
-
-    lines = ["🔥 Streak Board"]
-    for rank, user in enumerate(leaderboard, start=1):
-        lines.append(
-            f"{rank}. {user['name']} - current: {user['current_streak']} | best: {user['best_streak']}"
-        )
-    return lines
+    return [
+        f"🔥 {current_user['name']}",
+        f"Current streak: {current_user['current_streak']}",
+    ]
 
 
 def build_question_pool() -> list[dict]:
