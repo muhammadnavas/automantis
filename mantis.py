@@ -292,17 +292,11 @@ def build_message(selected_questions: list[dict], streak_lines: list[str]) -> st
     lines = [
         "📘 Daily Aptitude Quiz",
         f"📅 {today}",
-        f"🧠 Questions: {len(selected_questions)}",
         "",
         *streak_lines,
         "",
-        "Tap an option for each quiz below.",
-        "Telegram will instantly tell you if you are correct or wrong.",
         "",
     ]
-    for index, question in enumerate(selected_questions, start=1):
-        lines.append(f"{index}. [{question['topic']}] {question['question']}")
-        lines.append("")
     lines.append("Good luck!")
     return "\n".join(lines)
 
