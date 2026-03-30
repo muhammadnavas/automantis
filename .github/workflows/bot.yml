@@ -34,7 +34,13 @@ jobs:
             echo '{"last_update_id": 0, "polls": {}, "users": {}}' > streaks.json
           fi
 
-      - run: python -m pip install requests python-dotenv
+      - run: python -m pip install -r requirements.txt
+
+      - name: Build question database from PDFs
+        run: python extract_questions_from_pdfs.py
+
+      - name: Curate question database format
+        run: python curate_questions.py
 
       - run: python mantis.py
 

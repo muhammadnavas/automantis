@@ -1,6 +1,7 @@
 import os
 import random
 import json
+import hashlib
 from datetime import datetime
 
 import requests
@@ -14,6 +15,7 @@ CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 QUESTION_COUNT = int(os.getenv("QUESTION_COUNT", "3"))
 STREAK_STATE_FILE = os.getenv("STREAK_STATE_FILE", "streaks.json")
 MAX_TRACKED_POLLS = int(os.getenv("MAX_TRACKED_POLLS", "300"))
+QUESTION_DB_FILE = os.getenv("QUESTION_DB_FILE", "data/questions_from_pdf.json")
 
 QUESTION_BANK = {
     "Percentages": [
@@ -128,6 +130,8 @@ def validate_config() -> None:
         raise ValueError("QUESTION_COUNT must be greater than 0")
     if MAX_TRACKED_POLLS <= 0:
         raise ValueError("MAX_TRACKED_POLLS must be greater than 0")
+    if not QUESTION_DB_FILE:
+        raise ValueError("QUESTION_DB_FILE cannot be empty")
 
 
 def load_state() -> dict:
@@ -135,6 +139,7 @@ def load_state() -> dict:
         "last_update_id": 0,
         "polls": {},
         "users": {},
+        "asked_question_ids": [],
     }
     if not os.path.exists(STREAK_STATE_FILE):
         return default_state
@@ -151,12 +156,89 @@ def load_state() -> dict:
     data.setdefault("last_update_id", 0)
     data.setdefault("polls", {})
     data.setdefault("users", {})
+    data.setdefault("asked_question_ids", [])
     return data
 
 
 def save_state(state: dict) -> None:
     with open(STREAK_STATE_FILE, "w", encoding="utf-8") as file:
         json.dump(state, file, indent=2)
+
+
+def make_question_id(item: dict) -> str:
+    seed = f"{item.get('question', '')}|{'|'.join(item.get('options', []))}|{item.get('topic', '')}"
+    return hashlib.md5(seed.encode("utf-8")).hexdigest()
+
+
+def apply_work_lcm_explanation(item: dict) -> None:
+    question = item.get("question", "").lower()
+    topic = item.get("topic", "").lower()
+    if "work" in question or "work" in topic:
+        item["explanation"] = (
+            "Use LCM method: assume total work as LCM of individual day counts, "
+            "convert each person's work/day, then combine rates. "
+            + item.get("explanation", "")
+        ).strip()
+
+
+def validate_question_item(item: dict) -> bool:
+    if not isinstance(item, dict):
+        return False
+    if not item.get("question"):
+        return False
+    options = item.get("options")
+    if not isinstance(options, list) or len(options) < 2:
+        return False
+    correct = item.get("correct_option")
+    if not isinstance(correct, int):
+        return False
+    if correct < 0 or correct >= len(options):
+        return False
+    return True
+
+
+def build_fallback_question_pool() -> list[dict]:
+    pool = []
+    for topic, questions in QUESTION_BANK.items():
+        for question in questions:
+            item = dict(question)
+            item["topic"] = topic
+            apply_work_lcm_explanation(item)
+            item["id"] = make_question_id(item)
+            pool.append(item)
+    return pool
+
+
+def load_pdf_question_pool() -> list[dict]:
+    if not os.path.exists(QUESTION_DB_FILE):
+        return []
+
+    try:
+        with open(QUESTION_DB_FILE, "r", encoding="utf-8") as file:
+            data = json.load(file)
+    except (json.JSONDecodeError, OSError):
+        return []
+
+    if not isinstance(data, list):
+        return []
+
+    pool = []
+    for raw_item in data:
+        if not validate_question_item(raw_item):
+            continue
+
+        item = {
+            "topic": raw_item.get("topic", "General Aptitude"),
+            "question": str(raw_item["question"]).strip(),
+            "options": [str(option).strip() for option in raw_item["options"]],
+            "correct_option": int(raw_item["correct_option"]),
+            "explanation": str(raw_item.get("explanation", "Solve carefully and verify the result.")).strip(),
+        }
+        apply_work_lcm_explanation(item)
+        item["id"] = str(raw_item.get("id") or make_question_id(item))
+        pool.append(item)
+
+    return pool
 
 
 def get_poll_answer_updates(offset: int | None = None) -> list[dict]:
@@ -252,6 +334,12 @@ def trim_poll_history(state: dict) -> None:
         polls.pop(poll_id, None)
 
 
+def trim_asked_question_ids(state: dict, pool: list[dict]) -> None:
+    valid_ids = {item["id"] for item in pool}
+    asked = state.get("asked_question_ids", [])
+    state["asked_question_ids"] = [qid for qid in asked if qid in valid_ids]
+
+
 def build_streak_summary(state: dict) -> list[str]:
     users = state.get("users", {})
     current_user = users.get(str(CHAT_ID))
@@ -265,19 +353,29 @@ def build_streak_summary(state: dict) -> list[str]:
 
 
 def build_question_pool() -> list[dict]:
-    pool = []
-    for topic, questions in QUESTION_BANK.items():
-        for question in questions:
-            item = dict(question)
-            item["topic"] = topic
-            pool.append(item)
-    return pool
+    pdf_pool = load_pdf_question_pool()
+    if pdf_pool:
+        return pdf_pool
+    return build_fallback_question_pool()
 
 
-def generate_daily_questions() -> list[dict]:
-    pool = build_question_pool()
+def generate_daily_questions(pool: list[dict], state: dict) -> list[dict]:
+    if not pool:
+        raise ValueError("No questions available. Add valid PDFs in data/ and run extraction.")
+
+    trim_asked_question_ids(state, pool)
+
+    asked = set(state.get("asked_question_ids", []))
+    available = [item for item in pool if item["id"] not in asked]
     count = min(QUESTION_COUNT, len(pool))
-    return random.sample(pool, count)
+
+    if len(available) < count:
+        state["asked_question_ids"] = []
+        available = list(pool)
+
+    selected = random.sample(available, count)
+    state["asked_question_ids"].extend(item["id"] for item in selected)
+    return selected
 
 
 def build_message(selected_questions: list[dict], streak_lines: list[str]) -> str:
@@ -331,7 +429,8 @@ def main() -> None:
     state = load_state()
     processed_answers = process_pending_poll_answers(state)
 
-    questions = generate_daily_questions()
+    pool = build_question_pool()
+    questions = generate_daily_questions(pool, state)
     streak_lines = build_streak_summary(state)
     header = build_message(questions, streak_lines)
     header_payload = send_telegram_message(header)
