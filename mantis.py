@@ -25,7 +25,9 @@ for i,q in enumerate(selected,1):
 
 url=f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 
-requests.post(url,data={
+response = requests.post(url,data={
 "chat_id":CHAT_ID,
 "text":message
 })
+
+print(response.text)
