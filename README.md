@@ -2,6 +2,8 @@
 
 A Telegram bot that sends aptitude questions to users, tracks their performance, and maintains answer streaks. The bot extracts and curates multiple-choice questions from PDF documents and delivers them via interactive Telegram polls.
 
+**Access the bot**: https://t.me/automantis_bot
+
 ## Features
 
 - **Interactive Telegram Polls**: Sends multiple-choice questions via Telegram polls
