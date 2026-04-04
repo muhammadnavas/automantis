@@ -1,0 +1,17 @@
+{
+  "last_update_id": 0,
+  "polls": {
+    "6235281594454639304": {
+      "correct_option_id": 0,
+      "topic": "General Aptitude",
+      "question": "If Rs. 58 is divided among 150 children such that each girl and each boy gets 25 p and 50 p respectively. Then how many girls are there?",
+      "created_at": "2026-04-04T10:30:13"
+    }
+  },
+  "users": {},
+  "asked_question_ids": [
+    "2746500996057483665b3c985bcf4587",
+    "8076802d3b8f9d3d4cdf26a349c8185d",
+    "91edae9b48387fd1c5c34a436c670744"
+  ]
+}

@@ -26,8 +26,12 @@ def load_subscribers():
 
 def save_subscribers(users):
     """Save subscribers to file"""
-    with open(SUBSCRIBERS_FILE, "w", encoding="utf-8") as f:
-        json.dump({"users": users}, f, indent=2)
+    try:
+        with open(SUBSCRIBERS_FILE, "w", encoding="utf-8") as f:
+            json.dump({"users": users}, f, indent=2)
+        print(f"✓ Saved {len(users)} subscribers to {SUBSCRIBERS_FILE}")
+    except Exception as e:
+        print(f"ERROR saving subscribers: {e}")
 
 
 def handle_message(update):
@@ -54,6 +58,7 @@ def handle_message(update):
                 "subscribed_at": datetime.now().isoformat(),
                 "active": True
             }
+            print(f"→ New subscriber: {username} (ID: {user_id})")
             save_subscribers(subscribers)
             
             # Send welcome message
@@ -79,8 +84,10 @@ Thank you for subscribing to <b>Daily Aptitude Quiz</b>! 📘
 
 Good luck! Let's build your skills! 🚀"""
             
+            print(f"→ Sending welcome message to {chat_id}")
             send_message(chat_id, welcome_msg)
         else:
+            print(f"→ User {user_id} already subscribed")
             send_message(chat_id, f"✅ You're already subscribed! Type /stop to unsubscribe.")
 
     elif text == "/stop":
@@ -132,11 +139,16 @@ def process_updates(offset=None):
         data = response.json()
         
         if data.get("ok"):
-            for update in data.get("result", []):
+            updates = data.get("result", [])
+            if updates:
+                print(f"📨 Processing {len(updates)} update(s)...")
+            for update in updates:
                 handle_message(update)
                 offset = update.get("update_id") + 1
             
             return offset
+        else:
+            print(f"Telegram API error: {data.get('description')}")
     except Exception as e:
         print(f"Error processing updates: {e}")
     
@@ -145,7 +157,13 @@ def process_updates(offset=None):
 
 def main():
     """Run the message handler (can be deployed as webhook or polling bot)"""
-    print("Starting Telegram message handler...")
+    if not TOKEN:
+        print("❌ ERROR: TELEGRAM_BOT_TOKEN not set in .env file")
+        return
+    
+    print(f"🚀 Starting Telegram message handler...")
+    print(f"📁 Subscribers file: {SUBSCRIBERS_FILE}")
+    
     offset = None
     
     while True:
@@ -153,11 +171,11 @@ def main():
             offset = process_updates(offset)
             time.sleep(1)  # Poll every 1 second to prevent high CPU usage
         except KeyboardInterrupt:
-            print("Stopped.")
+            print("\n✋ Stopped.")
             break
         except Exception as e:
-            print(f"Error: {e}")
-            time.sleep(1)  # Wait before retrying on error
+            print(f"❌ Error: {e}")
+            time.sleep(5)  # Wait longer before retrying on error
 
 
 if __name__ == "__main__":
