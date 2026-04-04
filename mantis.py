@@ -2,7 +2,7 @@ import os
 import random
 import json
 import hashlib
-from datetime import datetime
+from datetime import datetime, timedelta, date
 
 import requests
 from dotenv import load_dotenv
@@ -16,6 +16,7 @@ QUESTION_COUNT = int(os.getenv("QUESTION_COUNT", "3"))
 STREAK_STATE_FILE = os.getenv("STREAK_STATE_FILE", "streaks.json")
 MAX_TRACKED_POLLS = int(os.getenv("MAX_TRACKED_POLLS", "300"))
 QUESTION_DB_FILE = os.getenv("QUESTION_DB_FILE", "data/questions_from_pdf.json")
+SUBSCRIBERS_FILE = os.getenv("SUBSCRIBERS_FILE", "subscribers.json")
 
 QUESTION_BANK = {
     "Percentages": [
@@ -132,6 +133,31 @@ def validate_config() -> None:
         raise ValueError("MAX_TRACKED_POLLS must be greater than 0")
     if not QUESTION_DB_FILE:
         raise ValueError("QUESTION_DB_FILE cannot be empty")
+
+
+def get_active_subscribers() -> list[str]:
+    """Get list of active subscriber chat IDs"""
+    # If subscribers file doesn't exist, use only CHAT_ID (default/legacy mode)
+    if not os.path.exists(SUBSCRIBERS_FILE):
+        return [CHAT_ID]
+    
+    try:
+        with open(SUBSCRIBERS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            subscribers = data.get("users", {})
+            
+            # Get active subscribers
+            active_chats = [
+                user["chat_id"]
+                for user in subscribers.values()
+                if user.get("active", True)
+            ]
+            
+            # If no active subscribers, use default CHAT_ID
+            return active_chats if active_chats else [CHAT_ID]
+    except (json.JSONDecodeError, OSError, KeyError):
+        # Fallback to default CHAT_ID if error
+        return [CHAT_ID]
 
 
 def load_state() -> dict:
@@ -276,19 +302,46 @@ def upsert_user_streak(state: dict, user: dict, is_correct: bool) -> None:
             "correct_answers": 0,
             "wrong_answers": 0,
             "updated_at": "",
+            "last_participated_date": "",
         },
     )
 
     entry["name"] = display_name
+    today = datetime.now().strftime("%Y-%m-%d")
+    last_date = entry.get("last_participated_date", "")
+    
+    # Check if user participated yesterday or today
+    if last_date:
+        today_obj = date.fromisoformat(today)
+        last_date_obj = date.fromisoformat(last_date)
+        days_diff = (today_obj - last_date_obj).days
+        
+        # If more than 1 day gap, reset streak
+        if days_diff > 1:
+            entry["current_streak"] = 0
+        # If they participated today already in same day, don't double count
+        elif days_diff == 0 and is_correct:
+            # Same day, just update as answered
+            pass
+        # If they participated yesterday, continue/extend streak
+        elif days_diff == 1:
+            if is_correct:
+                entry["current_streak"] += 1
+    else:
+        # First time participating
+        if is_correct:
+            entry["current_streak"] = 1
+    
+    entry["last_participated_date"] = today
     entry["updated_at"] = datetime.now().isoformat(timespec="seconds")
 
     if is_correct:
         entry["correct_answers"] += 1
-        entry["current_streak"] += 1
         if entry["current_streak"] > entry["best_streak"]:
             entry["best_streak"] = entry["current_streak"]
     else:
         entry["wrong_answers"] += 1
+        # Wrong answer resets streak immediately
         entry["current_streak"] = 0
 
 
@@ -391,11 +444,13 @@ def build_message(selected_questions: list[dict], streak_lines: list[str]) -> st
     return "\n".join(lines)
 
 
-def send_telegram_message(message: str) -> dict:
+def send_telegram_message(message: str, chat_id: str = None) -> dict:
+    if chat_id is None:
+        chat_id = CHAT_ID
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     response = requests.post(
         url,
-        data={"chat_id": CHAT_ID, "text": message},
+        data={"chat_id": chat_id, "text": message},
         timeout=20,
     )
     response.raise_for_status()
@@ -405,10 +460,12 @@ def send_telegram_message(message: str) -> dict:
     return payload
 
 
-def send_quiz_poll(item: dict, index: int) -> dict:
+def send_quiz_poll(item: dict, index: int, chat_id: str = None) -> dict:
+    if chat_id is None:
+        chat_id = CHAT_ID
     url = f"https://api.telegram.org/bot{TOKEN}/sendPoll"
     payload = {
-        "chat_id": CHAT_ID,
+        "chat_id": chat_id,
         "question": f"Q{index}. [{item['topic']}] {item['question']}",
         "options": item["options"],
         "type": "quiz",
@@ -433,28 +490,37 @@ def main() -> None:
     questions = generate_daily_questions(pool, state)
     streak_lines = build_streak_summary(state)
     header = build_message(questions, streak_lines)
-    header_payload = send_telegram_message(header)
-    header_message_id = header_payload.get("result", {}).get("message_id")
+    
+    # Get all active subscribers
+    subscribers = get_active_subscribers()
+    total_sent = 0
+    total_polls = 0
 
-    sent_count = 0
-    for index, item in enumerate(questions, start=1):
-        poll_payload = send_quiz_poll(item, index)
-        poll_id = poll_payload.get("result", {}).get("poll", {}).get("id")
-        if poll_id:
-            state["polls"][poll_id] = {
-                "correct_option_id": item["correct_option"],
-                "topic": item["topic"],
-                "question": item["question"],
-                "created_at": datetime.now().isoformat(timespec="seconds"),
-            }
-        sent_count += 1
+    for chat_id in subscribers:
+        try:
+            header_payload = send_telegram_message(header, chat_id)
+            total_sent += 1
+
+            for index, item in enumerate(questions, start=1):
+                poll_payload = send_quiz_poll(item, index, chat_id)
+                poll_id = poll_payload.get("result", {}).get("poll", {}).get("id")
+                if poll_id:
+                    state["polls"][poll_id] = {
+                        "correct_option_id": item["correct_option"],
+                        "topic": item["topic"],
+                        "question": item["question"],
+                        "created_at": datetime.now().isoformat(timespec="seconds"),
+                    }
+                total_polls += 1
+        except Exception as e:
+            print(f"Error sending to {chat_id}: {e}")
 
     trim_poll_history(state)
     save_state(state)
 
     print(
         "Daily quiz sent successfully. "
-        f"header_message_id={header_message_id}, polls_sent={sent_count}, "
+        f"chats_sent={total_sent}, polls_sent={total_polls}, "
         f"processed_poll_answers={processed_answers}"
     )
 
