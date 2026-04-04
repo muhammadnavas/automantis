@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import requests
 from datetime import datetime
 from dotenv import load_dotenv
@@ -56,23 +57,23 @@ def handle_message(update):
             save_subscribers(subscribers)
             
             # Send welcome message
-            welcome_msg = f"""🎯 Welcome {username}!
+            welcome_msg = f"""🎯 <b>Welcome {username}!</b>
 
-Thank you for subscribing to **Daily Aptitude Quiz**! 📘
+Thank you for subscribing to <b>Daily Aptitude Quiz</b>! 📘
 
-Here's what you'll get:
+<b>Here's what you'll get:</b>
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ✅ 3 questions daily at 8 AM IST
-✅ Topics: Percentages, Profit & Loss, Time & Work, Distance
+✅ Topics: Percentages, Profit &amp; Loss, Time &amp; Work, Distance
 ✅ Instant feedback on your answers
 ✅ Track your streak and improve daily
 ✅ Compete with other subscribers
 
-📊 Your Streak:
+📊 <b>Your Streak:</b>
    Current: 0
    Best: 0
 
-Commands:
+<b>Commands:</b>
    /stop - Unsubscribe anytime
    /stats - View your stats (coming soon)
 
@@ -100,11 +101,21 @@ Good luck! Let's build your skills! 🚀"""
 def send_message(chat_id, text):
     """Send a message via Telegram"""
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    data = {"chat_id": chat_id, "text": text}
+    data = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True
+    }
     try:
-        requests.post(url, data=data, timeout=10)
+        response = requests.post(url, json=data, timeout=10)
+        response.raise_for_status()
+        if not response.json().get("ok"):
+            print(f"Telegram API error: {response.json()}")
+    except requests.exceptions.Timeout:
+        print(f"Timeout sending message to {chat_id}")
     except Exception as e:
-        print(f"Error sending message: {e}")
+        print(f"Error sending message to {chat_id}: {e}")
 
 
 def process_updates(offset=None):
@@ -140,11 +151,13 @@ def main():
     while True:
         try:
             offset = process_updates(offset)
+            time.sleep(1)  # Poll every 1 second to prevent high CPU usage
         except KeyboardInterrupt:
             print("Stopped.")
             break
         except Exception as e:
             print(f"Error: {e}")
+            time.sleep(1)  # Wait before retrying on error
 
 
 if __name__ == "__main__":
