@@ -14,13 +14,17 @@ SUBSCRIBERS_FILE = os.getenv("SUBSCRIBERS_FILE", "subscribers.json")
 def load_subscribers():
     """Load subscribers from file"""
     if not os.path.exists(SUBSCRIBERS_FILE):
+        print(f"DEBUG: {SUBSCRIBERS_FILE} doesn't exist yet")
         return {}
     
     try:
         with open(SUBSCRIBERS_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-            return data.get("users", {})
-    except (json.JSONDecodeError, OSError):
+            users = data.get("users", {})
+            print(f"DEBUG: Loaded {len(users)} subscribers from {SUBSCRIBERS_FILE}")
+            return users
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"DEBUG: Error loading {SUBSCRIBERS_FILE}: {e}")
         return {}
 
 
@@ -36,13 +40,22 @@ def save_subscribers(users):
 
 def handle_message(update):
     """Handle incoming messages and commands"""
+    print(f"DEBUG: Received update: {update}")
+    
     message = update.get("message", {})
+    if not message:
+        print("DEBUG: No 'message' in update, skipping")
+        return
+    
     text = message.get("text", "").lower().strip()
     user = message.get("from", {})
     user_id = str(user.get("id"))
     chat_id = str(message.get("chat", {}).get("id"))
     
+    print(f"DEBUG: text='{text}', user_id='{user_id}', chat_id='{chat_id}'")
+    
     if not user_id or not chat_id:
+        print("DEBUG: Missing user_id or chat_id, skipping")
         return
     
     username = user.get("username") or user.get("first_name") or user_id
@@ -114,11 +127,15 @@ def send_message(chat_id, text):
         "parse_mode": "HTML",
         "disable_web_page_preview": True
     }
+    print(f"DEBUG: Sending message to chat_id={chat_id}")
     try:
         response = requests.post(url, json=data, timeout=10)
         response.raise_for_status()
-        if not response.json().get("ok"):
-            print(f"Telegram API error: {response.json()}")
+        result = response.json()
+        if result.get("ok"):
+            print(f"✓ Message sent to {chat_id}")
+        else:
+            print(f"Telegram API error: {result.get('description')}")
     except requests.exceptions.Timeout:
         print(f"Timeout sending message to {chat_id}")
     except Exception as e:
@@ -128,21 +145,27 @@ def send_message(chat_id, text):
 def process_updates(offset=None):
     """Process incoming updates from Telegram"""
     url = f"https://api.telegram.org/bot{TOKEN}/getUpdates"
-    params = {"allowed_updates": ["message"]}
+    params = {}  # Remove allowed_updates restriction
     
     if offset:
         params["offset"] = offset
+    
+    print(f"DEBUG: Fetching updates with offset={offset}...")
     
     try:
         response = requests.get(url, params=params, timeout=20)
         response.raise_for_status()
         data = response.json()
         
+        print(f"DEBUG: API response ok={data.get('ok')}")
+        
         if data.get("ok"):
             updates = data.get("result", [])
+            print(f"DEBUG: Got {len(updates)} update(s)")
             if updates:
                 print(f"📨 Processing {len(updates)} update(s)...")
             for update in updates:
+                print(f"DEBUG: Processing update_id={update.get('update_id')}, types: {list(update.keys())}")
                 handle_message(update)
                 offset = update.get("update_id") + 1
             
@@ -151,6 +174,8 @@ def process_updates(offset=None):
             print(f"Telegram API error: {data.get('description')}")
     except Exception as e:
         print(f"Error processing updates: {e}")
+        import traceback
+        traceback.print_exc()
     
     return offset
 
@@ -163,6 +188,22 @@ def main():
     
     print(f"🚀 Starting Telegram message handler...")
     print(f"📁 Subscribers file: {SUBSCRIBERS_FILE}")
+    print(f"🔐 TOKEN loaded: {TOKEN[:10]}...{TOKEN[-10:] if len(TOKEN) > 20 else ''}")
+    print(f"📝 Testing bot connectivity...")
+    
+    # Test if token works by getting bot info
+    try:
+        test_url = f"https://api.telegram.org/bot{TOKEN}/getMe"
+        test_response = requests.get(test_url, timeout=10)
+        if test_response.json().get("ok"):
+            bot_info = test_response.json().get("result", {})
+            print(f"✓ Bot connected: @{bot_info.get('username')} (ID: {bot_info.get('id')})")
+        else:
+            print(f"❌ Bot token issue: {test_response.json().get('description')}")
+            return
+    except Exception as e:
+        print(f"❌ Cannot connect to Telegram: {e}")
+        return
     
     offset = None
     

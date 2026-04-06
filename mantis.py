@@ -200,11 +200,15 @@ def apply_work_lcm_explanation(item: dict) -> None:
     question = item.get("question", "").lower()
     topic = item.get("topic", "").lower()
     if "work" in question or "work" in topic:
-        item["explanation"] = (
-            "Use LCM method: assume total work as LCM of individual day counts, "
-            "convert each person's work/day, then combine rates. "
-            + item.get("explanation", "")
-        ).strip()
+        existing = item.get("explanation", "").strip()
+        # Don't duplicate the hint if it's already there
+        if not existing.startswith("Use LCM method"):
+            item["explanation"] = (
+                "Use LCM method: assume total work as LCM of individual day counts, "
+                "convert each person's work/day, then combine rates."
+            )
+        else:
+            item["explanation"] = existing
 
 
 def validate_question_item(item: dict) -> bool:
@@ -464,20 +468,37 @@ def send_quiz_poll(item: dict, index: int, chat_id: str = None) -> dict:
     if chat_id is None:
         chat_id = CHAT_ID
     url = f"https://api.telegram.org/bot{TOKEN}/sendPoll"
+    
+    # Ensure options are clean strings and within limits
+    clean_options = [str(opt).strip()[:100] for opt in item["options"]]
+    
+    # Truncate question to Telegram's 300 char limit
+    question_text = item.get("question", "")[:280]
+    
+    # Truncate explanation to Telegram's 200 char limit
+    explanation = item.get("explanation", "")[:200]
+    
     payload = {
         "chat_id": chat_id,
-        "question": f"Q{index}. [{item['topic']}] {item['question']}",
-        "options": item["options"],
+        "question": f"Q{index}. [{item['topic']}] {question_text}",
+        "options": clean_options,
         "type": "quiz",
-        "correct_option_id": item["correct_option"],
+        "correct_option_id": int(item["correct_option"]),
         "is_anonymous": False,
-        "explanation": item["explanation"],
+        "explanation": explanation,
     }
-    response = requests.post(url, json=payload, timeout=20)
-    response.raise_for_status()
-    data = response.json()
-    if not data.get("ok"):
-        raise RuntimeError(f"Telegram poll API error: {data}")
+    
+    try:
+        response = requests.post(url, json=payload, timeout=20)
+        response.raise_for_status()
+        data = response.json()
+        if not data.get("ok"):
+            print(f"DEBUG: Telegram poll error for question {index}: {data}")
+            raise RuntimeError(f"Telegram poll API error: {data}")
+        return data
+    except Exception as e:
+        print(f"DEBUG: Full payload for failed poll: {payload}")
+        raise
     return data
 
 

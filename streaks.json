@@ -6,12 +6,54 @@
       "topic": "General Aptitude",
       "question": "If Rs. 58 is divided among 150 children such that each girl and each boy gets 25 p and 50 p respectively. Then how many girls are there?",
       "created_at": "2026-04-04T10:30:13"
+    },
+    "6237533394268324715": {
+      "correct_option_id": 0,
+      "topic": "Percentages",
+      "question": "What is the percentage of candidates qualified from State N for all the years together, over the candidates appeared from State N during all the years together?",
+      "created_at": "2026-04-04T22:16:46"
+    },
+    "6237533394268324716": {
+      "correct_option_id": 3,
+      "topic": "Time and Work",
+      "question": "A and B complete a work in 24 days and 36 days respectively. They started working together for X days, and B left. The remaining work was completed in 14 days. Find X?",
+      "created_at": "2026-04-04T22:17:33"
+    },
+    "6237533394268324717": {
+      "correct_option_id": 0,
+      "topic": "General Aptitude",
+      "question": "Identify the mismatch between the sportspersons and the sport with which they are associated?",
+      "created_at": "2026-04-04T22:18:17"
+    },
+    "6237533394268324718": {
+      "correct_option_id": 2,
+      "topic": "General Aptitude",
+      "question": "How many 4 digits even numbers can be formed by using the digits 1,2,4,5,9 with repetition?",
+      "created_at": "2026-04-04T22:18:18"
+    },
+    "6237533394268324719": {
+      "correct_option_id": 0,
+      "topic": "Time and Work",
+      "question": "A machine P can print one lakh books in 8 hours, machine Q can print the sam e number of books in 10 hours while machine R can print them in 12 hours. All the machines are started at 9.00 am , while machine P is closed at 11.00 am and the remaining two machines complete work. Approximately at what time will the work (to print one lakh books) be finished?",
+      "created_at": "2026-04-04T22:18:20"
     }
   },
   "users": {},
   "asked_question_ids": [
     "2746500996057483665b3c985bcf4587",
     "8076802d3b8f9d3d4cdf26a349c8185d",
-    "91edae9b48387fd1c5c34a436c670744"
+    "91edae9b48387fd1c5c34a436c670744",
+    "99944a7af555bbc46cf96a5c7726bee5",
+    "b31861c3f3b4a8aa1a74902bd740745e",
+    "8b1351e3ed9d78ca0e19fadcdc1047fd",
+    "690303a6ece789a1b00281b0822307ae",
+    "bd3a8fc2ef69935abf9156c025d390ad",
+    "68003af12eb927ca96325c916e905232",
+    "054961a83af2599afe85a222247c9fdc",
+    "4c2fa2a3da161b64d8f5e4269f66399e",
+    "32f687a9e87a5a3c76dfec615d596f4b",
+    "f30a3be0fc39a0ad0f621740530e0067",
+    "e7b73c9ed200658607426834253a3698",
+    "4b025bebe1b32f1ead137cb7af183d8d"
   ]
 }
