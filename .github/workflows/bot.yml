@@ -2,7 +2,7 @@ name: Daily Mantis Bot
 
 on:
   schedule:
-    - cron: '30 0 * * *'
+    - cron: '30 23 * * *'
   workflow_dispatch:
 
 jobs:
@@ -14,14 +14,14 @@ jobs:
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Restore streak state
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: streaks.json
           key: streaks-bot
@@ -46,7 +46,7 @@ jobs:
 
       - name: Save streak state
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: streaks.json
           key: streaks-bot

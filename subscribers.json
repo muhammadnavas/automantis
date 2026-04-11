@@ -5,12 +5,6 @@
       "username": "You",
       "subscribed_at": "2026-04-04T22:15:10.881199",
       "active": true
-    },
-    "python force_reset.py": {
-      "chat_id": "python force_reset.py",
-      "username": "User",
-      "subscribed_at": "2026-04-04T22:23:20.523484",
-      "active": true
     }
   }
 }

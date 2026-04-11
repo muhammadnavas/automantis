@@ -397,9 +397,13 @@ def trim_asked_question_ids(state: dict, pool: list[dict]) -> None:
     state["asked_question_ids"] = [qid for qid in asked if qid in valid_ids]
 
 
-def build_streak_summary(state: dict) -> list[str]:
+def build_streak_summary(state: dict, chat_id: str = None) -> list[str]:
+    """Build streak summary for a specific chat_id or current user"""
+    if chat_id is None:
+        chat_id = CHAT_ID
+    
     users = state.get("users", {})
-    current_user = users.get(str(CHAT_ID))
+    current_user = users.get(str(chat_id))
     if not current_user:
         return ["🔥 Your current streak: 0"]
 
@@ -509,8 +513,7 @@ def main() -> None:
 
     pool = build_question_pool()
     questions = generate_daily_questions(pool, state)
-    streak_lines = build_streak_summary(state)
-    header = build_message(questions, streak_lines)
+    header_template = None
     
     # Get all active subscribers
     subscribers = get_active_subscribers()
@@ -519,6 +522,10 @@ def main() -> None:
 
     for chat_id in subscribers:
         try:
+            # Build personalized streak summary for each subscriber
+            streak_lines = build_streak_summary(state, chat_id)
+            header = build_message(questions, streak_lines)
+            
             header_payload = send_telegram_message(header, chat_id)
             total_sent += 1
 
